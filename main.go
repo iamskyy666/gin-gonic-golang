@@ -55,6 +55,71 @@ func main() {
     })
   })
 
+  // Define a simple PUT endpoint
+  r.PUT("/me", func(c *gin.Context) {
+
+    type MeRequest struct{
+      Email string `json:"email" binding:"required"`
+      Password string `json:"password"`
+    }
+    var meReq MeRequest
+
+    err:=c.BindJSON(&meReq)
+    if err!=nil{
+      // Return JSON response
+    c.JSON(http.StatusBadRequest, gin.H{
+   "error":err.Error(),
+   "status_code":http.StatusBadRequest,
+    })
+    return
+    }
+
+    // Return JSON response
+    c.JSON(http.StatusOK, gin.H{
+   "email":meReq.Email,
+   "password":meReq.Password,
+    })
+  })
+
+  // Define a simple PATCH endpoint
+  r.PATCH("/me", func(c *gin.Context) {
+
+    type MeRequest struct{
+      Email string `json:"email" binding:"required"`
+      Password string `json:"password"`
+    }
+    var meReq MeRequest
+
+    err:=c.BindJSON(&meReq)
+    if err!=nil{
+      // Return JSON response
+    c.JSON(http.StatusBadRequest, gin.H{
+   "error":err.Error(),
+   "status_code":http.StatusBadRequest,
+    })
+    return
+    }
+
+    // Return JSON response
+    c.JSON(http.StatusOK, gin.H{
+   "email":meReq.Email,
+   "password":meReq.Password,
+    })
+  })
+
+  // Define a simple DELETE endpoint
+  r.DELETE("/me/:key", func(c *gin.Context) {
+
+    id:=c.Param("key")
+
+
+    // Return JSON response
+    c.JSON(http.StatusOK, gin.H{
+   "id":id,
+   "message":"Deleted ✅",
+    })
+  })
+
   // Start server on port 8080 (default)
   // Server will listen on 0.0.0.0:8080 (localhost:8080 on Windows)
   if err := r.Run(); err != nil {
