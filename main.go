@@ -4,125 +4,92 @@ import (
 	"log"
 	"net/http"
 
+	"io"
+
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-  // Create a Gin router with default middleware (logger and recovery)
-  r := gin.Default()
+	router := gin.Default() // gin-router, with default middleware
 
-  // Define a simple GET endpoint
-  r.GET("/ping", func(c *gin.Context) {
-    // Return JSON response
-    c.JSON(http.StatusOK, gin.H{
-      "message": "pong",
-	  "status":http.StatusOK,
-    })
-  })
+	router.GET("/", RootHandler)
+	router.POST("/", PostHandler)
+	router.POST("/get-body-data", PostBodyDataHandler)
+	router.POST("/get-QryStr", PostQryDataHandler)
+	router.POST("/get-UrlParams/:name/:age", PostUrlDataHandler)
 
-  // Define a GET endpoint with params
-  r.GET("/me/:id", func(c *gin.Context) {
-    id:=c.Param("id")
-    // Return JSON response
-    c.JSON(http.StatusOK, gin.H{
-      "user_id":id,
-    })
-  })
+	err := router.Run() //default/without params:8080
+	if err != nil {
+		log.Fatalf("failed to run server: %v", err)
+	}
+}
 
-   // Define a simple POST endpoint
-  r.POST("/me", func(c *gin.Context) {
+// ROOT
+func RootHandler(ctx *gin.Context) {
+	ctx.JSON(http.StatusOK, gin.H{
+		"Thought💭": "Don't take life too seriously, you ain't getting out alive anyways",
+		"data":     "🍸 Welcome to root / home router Skyy (PORT: 8️⃣0️⃣8️⃣0️⃣ by default)!",
+		"status":   http.StatusOK,
+	})
+}
 
-    type MeRequest struct{
-      Email string `json:"email" binding:"required"`
-      Password string `json:"password"`
-    }
-    var meReq MeRequest
+// POST
+func PostHandler(ctx *gin.Context) {
+	ctx.JSON(http.StatusOK, gin.H{
+		"data":   "Hi I'm a POST request 🟢",
+		"status": http.StatusOK,
+	})
+}
 
-    err:=c.BindJSON(&meReq)
-    if err!=nil{
-      // Return JSON response
-    c.JSON(http.StatusBadRequest, gin.H{
-   "error":err.Error(),
-   "status_code":http.StatusBadRequest,
-    })
-    return
-    }
+// POST
+func PostBodyDataHandler(ctx *gin.Context) {
+  // Read data from the body
+	body := ctx.Request.Body
+	val, err := io.ReadAll(body)
 
-    // Return JSON response
-    c.JSON(http.StatusOK, gin.H{
-   "email":meReq.Email,
-   "password":meReq.Password,
-    })
-  })
-
-  // Define a simple PUT endpoint
-  r.PUT("/me", func(c *gin.Context) {
-
-    type MeRequest struct{
-      Email string `json:"email" binding:"required"`
-      Password string `json:"password"`
-    }
-    var meReq MeRequest
-
-    err:=c.BindJSON(&meReq)
-    if err!=nil{
-      // Return JSON response
-    c.JSON(http.StatusBadRequest, gin.H{
-   "error":err.Error(),
-   "status_code":http.StatusBadRequest,
-    })
-    return
-    }
-
-    // Return JSON response
-    c.JSON(http.StatusOK, gin.H{
-   "email":meReq.Email,
-   "password":meReq.Password,
-    })
-  })
-
-  // Define a simple PATCH endpoint
-  r.PATCH("/me", func(c *gin.Context) {
-
-    type MeRequest struct{
-      Email string `json:"email" binding:"required"`
-      Password string `json:"password"`
-    }
-    var meReq MeRequest
-
-    err:=c.BindJSON(&meReq)
-    if err!=nil{
-      // Return JSON response
-    c.JSON(http.StatusBadRequest, gin.H{
-   "error":err.Error(),
-   "status_code":http.StatusBadRequest,
-    })
-    return
-    }
-
-    // Return JSON response
-    c.JSON(http.StatusOK, gin.H{
-   "email":meReq.Email,
-   "password":meReq.Password,
-    })
-  })
-
-  // Define a simple DELETE endpoint
-  r.DELETE("/me/:key", func(c *gin.Context) {
-
-    id:=c.Param("key")
-
-
-    // Return JSON response
-    c.JSON(http.StatusOK, gin.H{
-   "id":id,
-   "message":"Deleted ✅",
-    })
-  })
-
-  // Start server on port 8080 (default)
-  // Server will listen on 0.0.0.0:8080 (localhost:8080 on Windows)
-  if err := r.Run(); err != nil {
-    log.Fatalf("failed to run server: %v", err)
+  if err!=nil{
+    ctx.JSON(http.StatusInternalServerError, gin.H{
+		"ERROR ⚠️": err.Error(),
+		"status":   http.StatusInternalServerError,
+	})
+  log.Fatal(err.Error())
+  return
   }
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"bodyData": string(val),
+		"status":   http.StatusOK,
+	})
+}
+
+// Handling query-params
+// http://localhost:8080/get-QryStr?name=Mark&age=30
+// POST
+func PostQryDataHandler(ctx *gin.Context) {
+  // Read data from the body
+	name := ctx.Query("name")
+  age := ctx.Query("age")
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"data": "Getting data from Query-Params 🟢",
+    "name":name,
+    "age":age,
+		"status":   http.StatusOK,
+	})
+}
+
+// Handling URL-params
+// http://localhost:8080/get-UrlParams/Skyy/30
+// POST
+func PostUrlDataHandler(ctx *gin.Context) {
+  // Read data from the URL-params
+	name := ctx.Param("name")
+  age := ctx.Param("age")
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"data": "Getting data from URL params 🔵",
+    "name":name,
+    "age":age,
+		"status":   http.StatusOK,
+	})
 }
