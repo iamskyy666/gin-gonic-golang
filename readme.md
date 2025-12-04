@@ -1486,4 +1486,405 @@ But it will **not print**:
 
 ---
 
+# 1) Why use Logrus with Gin?
+
+* Gin is a fast HTTP framework; Logrus gives us **structured, leveled logging** so logs are searchable and machine-readable.
+* Structured logs help correlate requests (`request_id`), trace errors, feed ELK/Loki/Datadog, and generate metrics.
+* Combining them gives us request-level context (path, method, client IP, status, latency) in every log line.
+
+---
+
+# 2) High-level integration approaches
+
+1. **Global logger** configured once in `main()` and used directly (simple, app-level).
+2. **Logger instance** (`logger := logrus.New()`) configured and passed into Gin middleware — preferred for libraries and tests.
+3. **Request-scoped `*logrus.Entry`** attached to `gin.Context` so handlers reuse structured context (request_id, user, etc.).
+4. **Use Gin’s built-in logger with Logrus output** (`gin.LoggerWithWriter`) — quick to wire Logrus into Gin’s access logs.
+
+We’ll show all patterns but recommend the request-scoped entry pattern for greatest flexibility.
+
+---
+
+# 3) Basic logger setup (JSON + console + file + env-level)
+
+```go
+package main
+
+import (
+    "io"
+    "os"
+    "time"
+
+    "github.com/sirupsen/logrus"
+)
+
+func NewLogger() *logrus.Logger {
+    logger := logrus.New()
+
+    // JSON for production, but TextFormatter is fine for dev
+    logger.SetFormatter(&logrus.JSONFormatter{
+        TimestampFormat: time.RFC3339Nano,
+        PrettyPrint:     false, // one-line JSON is best for ingestion
+    })
+
+    // Set level from env (default Info)
+    lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
+    if err != nil {
+        lvl = logrus.InfoLevel
+    }
+    logger.SetLevel(lvl)
+
+    // Output to both stdout and file (append) — use MultiWriter
+    f, err := os.OpenFile("app.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o666)
+    if err == nil {
+        logger.SetOutput(io.MultiWriter(os.Stdout, f))
+    } else {
+        logger.SetOutput(os.Stdout)
+        logger.Warn("Failed to open log file, writing to stdout only")
+    }
+
+    // Optional: include caller (file:line) — costy but useful
+    // logger.SetReportCaller(true)
+
+    return logger
+}
+```
+
+**Notes**
+
+* Use `os.OpenFile(..., os.O_APPEND, ...)` — don’t use `os.Create()` (truncates).
+* For file rotation use a rotation library (example later).
+
+---
+
+# 4) Gin middleware: request-scoped logger
+
+We create middleware that builds an entry per request with fields like `request_id`, `path`, `method`, `client_ip`, `start_time`. We attach that entry to the context so handlers can `c.MustGet("logger")`.
+
+```go
+package main
+
+import (
+    "time"
+
+    "github.com/gin-gonic/gin"
+    "github.com/google/uuid"
+    "github.com/sirupsen/logrus"
+)
+
+func LoggerMiddleware(logger *logrus.Logger) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        start := time.Now()
+
+        // request id (use existing header or generate)
+        reqID := c.GetHeader("X-Request-ID")
+        if reqID == "" {
+            reqID = uuid.NewString()
+        }
+
+        entry := logger.WithFields(logrus.Fields{
+            "request_id": reqID,
+            "remote_ip":  c.ClientIP(),
+            "method":     c.Request.Method,
+            "path":       c.Request.URL.Path,
+        })
+
+        // attach to context for handlers
+        c.Set("logger", entry)
+
+        // log request start
+        entry.Info("request_started")
+
+        c.Next() // process request
+
+        latency := time.Since(start)
+        entry = entry.WithFields(logrus.Fields{
+            "status":  c.Writer.Status(),
+            "latency": latency.String(),
+            "length":  c.Writer.Size(),
+        })
+        entry.Info("request_completed")
+    }
+}
+```
+
+**Handler usage**
+
+```go
+func SomeHandler(c *gin.Context) {
+    // retrieve entry
+    entry := c.MustGet("logger").(*logrus.Entry)
+    entry.WithField("handler", "SomeHandler").Info("handling business logic")
+
+    c.JSON(200, gin.H{"ok": true})
+}
+```
+
+**Why this pattern?**
+
+* Everything logged from this request includes `request_id` and other fields, making cross-service tracing possible.
+* We avoid building fields repeatedly in handlers.
+
+---
+
+# 5) Wire it up in `main` (complete example)
+
+```go
+func main() {
+    logger := NewLogger()
+
+    r := gin.New()
+    r.Use(LoggerMiddleware(logger))
+    r.GET("/ping", func(c *gin.Context) {
+        entry := c.MustGet("logger").(*logrus.Entry)
+        entry.Info("pong handler")
+        c.JSON(200, gin.H{"message": "pong"})
+    })
+
+    r.Run(":8080")
+}
+```
+
+---
+
+# 6) Gin access logs using Logrus (alternative quick method)
+
+Gin provides `gin.LoggerWithWriter(out io.Writer)`. If we want Gin’s standard access logging body but written by Logrus, we can do:
+
+```go
+// Write Gin's logger output to logrus' writer
+r.Use(gin.LoggerWithWriter(logger.Writer()), gin.Recovery())
+```
+
+This will pipe Gin’s textual logs to the logger’s writer; but those will be plain text and not structured fields. For structured access logs, use the custom middleware above.
+
+---
+
+# 7) Recovery middleware that logs panics with Logrus
+
+We should capture panic stack traces and log them with request context.
+
+```go
+import "runtime/debug"
+
+func RecoveryWithLogrus(logger *logrus.Logger) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        defer func() {
+            if rec := recover(); rec != nil {
+                // get request-scoped entry if available
+                entry, ok := c.Get("logger")
+                if ok {
+                    e := entry.(*logrus.Entry)
+                    e.WithFields(logrus.Fields{
+                        "panic": rec,
+                        "stack": string(debug.Stack()),
+                    }).Error("panic recovered")
+                } else {
+                    logger.WithFields(logrus.Fields{
+                        "panic": rec,
+                        "stack": string(debug.Stack()),
+                    }).Error("panic recovered (no request logger)")
+                }
+                c.AbortWithStatus(500)
+            }
+        }()
+        c.Next()
+    }
+}
+```
+
+Add this middleware early (before handlers).
+
+---
+
+# 8) Logging request/response body — caveats
+
+* Reading request body consumes it; if handlers need it, we must buffer and restore `c.Request.Body`.
+* Do **not** log large request bodies or PII (passwords, tokens).
+* Example: only log small JSON or truncated content size.
+
+---
+
+# 9) Log rotation (production)
+
+Never let logs grow forever. Use a rotating writer, e.g., `gopkg.in/natefinch/lumberjack.v2`:
+
+```go
+import "gopkg.in/natefinch/lumberjack.v2"
+
+rotator := &lumberjack.Logger{
+    Filename:   "app.log",
+    MaxSize:    100, // megabytes
+    MaxBackups: 7,
+    MaxAge:     30,   // days
+    Compress:   true,
+}
+logger.SetOutput(io.MultiWriter(os.Stdout, rotator))
+```
+
+This avoids building rotation logic ourselves.
+
+---
+
+# 10) Hooks — send Errors to Sentry/Slack/ELK
+
+A **hook** implements `logrus.Hook` with `Levels()` and `Fire(*Entry)`.
+
+Simple conceptual hook:
+
+```go
+type SlackHook struct{ /* slack client */ }
+
+func (h *SlackHook) Levels() []logrus.Level {
+    return []logrus.Level{logrus.ErrorLevel, logrus.FatalLevel, logrus.PanicLevel}
+}
+
+func (h *SlackHook) Fire(entry *logrus.Entry) error {
+    // serialize entry.Data and entry.Message
+    // send to Slack (async)
+    return nil
+}
+
+// register:
+logger.AddHook(&SlackHook{/*...*/})
+```
+
+**Important:** Make hooks asynchronous if sending to remote services can block. Use goroutines + bounded queue to avoid OOM.
+
+---
+
+# 11) Correlating logs with distributed tracing
+
+* Add `trace_id`/`span_id` to logger fields in middleware when available (from OpenTelemetry or similar).
+* When making downstream HTTP calls, propagate `X-Request-ID` and `traceparent` headers.
+
+---
+
+# 12) Testing tips
+
+* Use `logrus.New()` to create an instance for tests; capture output with a `bytes.Buffer`.
+
+```go
+buf := &bytes.Buffer{}
+logger := logrus.New()
+logger.SetOutput(buf)
+logger.SetLevel(logrus.DebugLevel)
+logger.Info("hello")
+assert.Contains(t, buf.String(), "hello")
+```
+
+* For handlers, create a test router with a test logger and inspect `buf`.
+
+---
+
+# 13) Performance considerations
+
+* `WithFields` allocates a `map[string]interface{}`; excessive fields per request cause pressure.
+* `SetReportCaller(true)` calls `runtime.Caller` and is slower—use only when needed.
+* JSON formatting and disk I/O are main bottlenecks; consider batching/throttling for remote sinks.
+* For extremely high-throughput services, evaluate zero-allocation loggers (e.g., `zerolog`) — but Logrus is fine for most apps.
+
+---
+
+# 14) Security & privacy
+
+* Never log raw passwords, tokens, credit card numbers.
+* Redact sensitive fields before logging or have a filtering layer.
+* Be careful with `WithFields(data map[string]interface{})` where `data` can include user-submitted content.
+
+---
+
+# 15) Example: full app (complete)
+
+```go
+package main
+
+import (
+    "io"
+    "os"
+    "time"
+
+    "github.com/gin-gonic/gin"
+    "github.com/google/uuid"
+    "github.com/sirupsen/logrus"
+    "gopkg.in/natefinch/lumberjack.v2"
+)
+
+func NewLogger() *logrus.Logger {
+    logger := logrus.New()
+    logger.SetFormatter(&logrus.JSONFormatter{TimestampFormat: time.RFC3339Nano})
+    lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
+    if err != nil { lvl = logrus.InfoLevel }
+    logger.SetLevel(lvl)
+
+    rot := &lumberjack.Logger{
+        Filename:   "app.log",
+        MaxSize:    100,
+        MaxBackups: 7,
+        MaxAge:     30,
+        Compress:   true,
+    }
+
+    logger.SetOutput(io.MultiWriter(os.Stdout, rot))
+    return logger
+}
+
+func LoggerMiddleware(logger *logrus.Logger) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        start := time.Now()
+        reqID := c.GetHeader("X-Request-ID")
+        if reqID == "" {
+            reqID = uuid.NewString()
+        }
+        entry := logger.WithFields(logrus.Fields{
+            "request_id": reqID,
+            "remote_ip":  c.ClientIP(),
+            "method":     c.Request.Method,
+            "path":       c.Request.URL.Path,
+        })
+        c.Set("logger", entry)
+        entry.Info("request_start")
+        c.Next()
+        entry.WithFields(logrus.Fields{
+            "status":  c.Writer.Status(),
+            "latency": time.Since(start).String(),
+            "length":  c.Writer.Size(),
+        }).Info("request_end")
+    }
+}
+
+func main() {
+    logger := NewLogger()
+    r := gin.New()
+    r.Use(LoggerMiddleware(logger))
+    r.Use(gin.Recovery()) // we could use custom recovery that logs via our logger
+
+    r.GET("/ping", func(c *gin.Context) {
+        entry := c.MustGet("logger").(*logrus.Entry)
+        entry.Info("ping_handler")
+        c.JSON(200, gin.H{"message": "pong"})
+    })
+
+    r.Run(":8080")
+}
+```
+
+---
+
+# 16) Checklist for production-grade logging (Logrus + Gin)
+
+* [ ] Logger configured once in `main()` (`NewLogger`)
+* [ ] Use JSON formatter (one-line per event) for ingestion
+* [ ] Add request-scoped `request_id` and attach to context
+* [ ] Use `io.MultiWriter` + rotating file (lumberjack) or send to stdout for containerized apps (then use sidecar collector)
+* [ ] Add recovery middleware that logs panics with stack traces and request fields
+* [ ] Avoid logging sensitive data
+* [ ] Set `LOG_LEVEL` via env var
+* [ ] Keep hooks async or buffered
+* [ ] Test by injecting test logger and capturing buffer
+* [ ] Monitor log volume and rotate/retention
+
+---
+
+
 
