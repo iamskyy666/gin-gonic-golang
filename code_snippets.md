@@ -698,3 +698,491 @@ func GetDatahandler(ctx *gin.Context){
 	})
 }
 ```
+
+```go
+package main
+
+/*
+
+1. What is logrus.
+2. Installing & using logrus.
+3. LogLevels in logrus.
+4. Log messages to multiple options.
+5. Format messages in logrus.
+6. Logging in JSON format.
+7. LogWithField and LogWithFields in logrus.
+
+*/
+
+import (
+	"io"
+	"net/http"
+	"os"
+
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
+)
+
+func main() {
+
+    logrus.SetReportCaller(true)
+
+    logrus.SetFormatter(&logrus.JSONFormatter{
+        DisableTimestamp: true,
+        PrettyPrint: true,
+    })
+
+    logrus.SetLevel(logrus.TraceLevel)
+
+    // Create file ONCE (append mode)
+    f, err := os.OpenFile("logrus.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+    if err != nil {
+        logrus.Fatalln("Error creating log file: ", err)
+    }
+
+    // Log to both console and file
+    multi := io.MultiWriter(os.Stdout, f)
+    logrus.SetOutput(multi)
+
+    // Now logs will go to both
+    logrus.Traceln("Trace 🟢")
+    logrus.Debugln("Debug 🟡")
+    logrus.Infoln("Info 🟠")
+
+    router := gin.New()
+    router.GET("/getData", GetDatahandler)
+
+    router.Run(":8081")
+}
+
+func GetDatahandler(ctx *gin.Context) {
+
+    logrus.WithField("handler", "GetData").Info("Inside handler")
+    logrus.WithFields(logrus.Fields{
+        "method": "GetDatahandler",
+        "status": "OK",
+    }).Info("Handler execution complete")
+
+    ctx.JSON(http.StatusOK, gin.H{
+        "data": "Hello from handler 🟢",
+    })
+}
+```
+# 1. What is Logrus
+
+Logrus is a structured, leveled logging library for Go that aims to be a drop-in upgrade over the stdlib `log` package while giving us:
+
+* **Levels** (trace → panic) so we can filter logs by severity.
+* **Structured logging**: attach key/value fields to logs (`user=42`, `request_id=abc`).
+* **Formatters**: human-readable text or machine-friendly JSON.
+* **Hooks**: send log entries to other services (Sentry, Graylog, Kafka, etc.).
+* **Custom logger instances** so different packages/services can have separate configs.
+
+Why use it?
+
+* Better for production & observability than plain `log`.
+* Easy to integrate with logging backends (ELK/Loki/etc).
+* Familiar API: `logrus.WithField(...).Info("...")`.
+
+Tradeoffs:
+
+* More allocations than zero-allocation loggers (e.g., `zerolog`) — fine for most apps, but consider alternatives for ultra-high throughput.
+
+---
+
+# 2. Installing & using Logrus
+
+Install:
+
+```bash
+go get github.com/sirupsen/logrus
+```
+
+Minimal usage (global logger):
+
+```go
+import log "github.com/sirupsen/logrus"
+
+func main() {
+    log.SetLevel(log.InfoLevel)
+    log.Info("Server started")
+}
+```
+
+Better pattern — create and configure a logger instance:
+
+```go
+logger := logrus.New()
+logger.SetLevel(logrus.InfoLevel)
+logger.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
+logger.Out = os.Stdout
+
+logger.WithField("service", "auth").Info("auth service started")
+```
+
+Important notes:
+
+* Use `logrus.New()` for library code (don’t change global logger defaults).
+* For apps, configuring global logger (`logrus.Set...`) is fine in `main()`.
+* Avoid `logrus.Fatal` or `logrus.Panic` inside libraries — they exit/panic the process.
+
+---
+
+# 3. LogLevels in Logrus (in depth)
+
+Logrus supports 7 levels (ordered low → high):
+
+* `TraceLevel` — very fine-grained, verbose debugging (lowest).
+* `DebugLevel` — debugging info for developers.
+* `InfoLevel` — normal operation messages (startup, requests).
+* `WarnLevel` — unusual but non-fatal situations.
+* `ErrorLevel` — errors which the program can recover from.
+* `FatalLevel` — logs + `os.Exit(1)` (terminates).
+* `PanicLevel` — logs + `panic()` (stack trace).
+
+Set log level (global or per logger):
+
+```go
+logrus.SetLevel(logrus.DebugLevel)
+// or for instance
+logger.SetLevel(logrus.InfoLevel)
+```
+
+Filtering rule: only messages at the configured level *or higher* are emitted.
+Example: `SetLevel(WarnLevel)` emits `Warn`, `Error`, `Fatal`, `Panic` only.
+
+Best practices:
+
+* Development: `Trace` or `Debug`.
+* Production: `Info` or `Warn` (avoid `Debug` unless diagnosing).
+* Don’t overuse `Fatal`/`Panic`. Use them only for unrecoverable app bootstrap errors.
+
+Environment toggling:
+
+```go
+lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL")) // "debug", "info", ...
+if err == nil {
+    logrus.SetLevel(lvl)
+}
+```
+
+---
+
+# 4. Log messages to multiple options (console, file, remote)
+
+Logrus writes to an `io.Writer` (default `os.Stdout`). To log to multiple destinations, use `io.MultiWriter`.
+
+Example: write to console + file (append mode):
+
+```go
+f, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+if err != nil {
+    logrus.Fatalf("open log file: %v", err)
+}
+mw := io.MultiWriter(os.Stdout, f)
+logrus.SetOutput(mw)
+```
+
+Important details:
+
+* Use `os.OpenFile(..., os.O_APPEND, ...)` — **do not** use `os.Create()` in production because that truncates the file.
+* Do the output setup **once** during application startup (not per request).
+* For log rotation use a log rotation helper (e.g., `lumberjack.Logger`) — rotate files to avoid runaway disk use.
+* For external sinks (Sentry, Graylog, etc.) use **hooks** (`logrus.AddHook(...)`) to push entries asynchronously.
+
+Example with a hook (conceptual):
+
+```go
+logrus.AddHook(myHook) // myHook implements logrus.Hook
+```
+
+---
+
+# 5. Format messages in Logrus
+
+Logrus has formatters. The two most common are `TextFormatter` (human readable) and `JSONFormatter` (machine readable).
+
+## TextFormatter (human friendly)
+
+Options:
+
+* `FullTimestamp bool` — include full timestamp.
+* `TimestampFormat string` — custom timestamp layout.
+* `DisableColors bool` / `ForceColors bool` — color control.
+* `DisableQuote bool`, `QuoteEmptyFields bool`.
+
+Example:
+
+```go
+logrus.SetFormatter(&logrus.TextFormatter{
+    FullTimestamp:   true,
+    TimestampFormat: time.RFC3339,
+})
+```
+
+Sample output:
+
+```
+time="2025-12-05T15:04:05Z" level=info msg="Server started" service=auth
+```
+
+## JSONFormatter (structured & parsable)
+
+Options:
+
+* `TimestampFormat string`
+* `DisableTimestamp bool`
+* `PrettyPrint bool` — human readable multiline JSON (not recommended for high volume)
+* `FieldMap logrus.FieldMap` — change default key names (e.g., `message` → `msg`).
+
+Example:
+
+```go
+logrus.SetFormatter(&logrus.JSONFormatter{
+    TimestampFormat: time.RFC3339,
+    PrettyPrint:     false,
+})
+```
+
+Sample output:
+
+```json
+{"level":"info","msg":"Server started","service":"auth","time":"2025-12-05T15:04:05Z"}
+```
+
+Performance tips:
+
+* JSON is better for ingestion by log pipelines.
+* PrettyPrint is convenient for debugging but increases bytes and slows logging — keep it off in production.
+* Formatter options may allocate; for extremely high performance, consider zero-alloc loggers.
+
+---
+
+# 6. Logging in JSON format (practical details)
+
+Why JSON:
+
+* Easy to index/search in ELK / Loki / Datadog.
+* Fields are machine-readable (no ad hoc parsing).
+* Compatible with structured tracing/observability pipelines.
+
+Configuration example:
+
+```go
+logger := logrus.New()
+logger.SetFormatter(&logrus.JSONFormatter{
+    TimestampFormat: time.RFC3339Nano,
+})
+f, _ := os.OpenFile("app.json.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+logger.SetOutput(io.MultiWriter(os.Stdout, f))
+logger.SetLevel(logrus.InfoLevel)
+```
+
+Add context fields:
+
+```go
+logger.WithFields(logrus.Fields{
+    "request_id": "abcd-1234",
+    "user_id":    42,
+}).Info("Processed request")
+```
+
+Result (single JSON object per line — good for streaming):
+
+```json
+{"level":"info","msg":"Processed request","request_id":"abcd-1234","user_id":42,"time":"2025-12-05T15:04:05Z"}
+```
+
+Best practices:
+
+* Keep JSON one object per line (no pretty print) for streaming ingestion.
+* Make sure timestamps are in a consistent format (RFC3339 or RFC3339Nano).
+* Avoid logging secrets (API keys, passwords) in any output.
+
+---
+
+# 7. `WithField` vs `WithFields` (and how to use them)
+
+Both functions attach structured fields to the log entry and return a `*logrus.Entry`. The entry can be reused (fields persist for the returned entry), and you can chain calls. Differences are just in ergonomics:
+
+### `WithField` — add a single key/value
+
+```go
+logrus.WithField("user", "skyy").Info("User logged in")
+```
+
+Equivalent to:
+
+```go
+logrus.WithFields(logrus.Fields{"user":"skyy"}).Info("User logged in")
+```
+
+### `WithFields` — add multiple key/values at once
+
+```go
+logrus.WithFields(logrus.Fields{
+    "user":       "skyy",
+    "request_id": "req-123",
+}).Info("User request")
+```
+
+### Reuse an entry with many logs
+
+```go
+entry := logrus.WithFields(logrus.Fields{
+    "service": "payments",
+    "env":     "prod",
+})
+
+// use entry to log multiple messages with same fields
+entry.Info("starting job")
+entry.Warn("slow response")
+```
+
+This avoids repeating fields in every call.
+
+### `WithError` — special helper to attach an `error`
+
+```go
+err := errors.New("db error")
+logrus.WithError(err).Error("failed to fetch user")
+```
+
+That produces a field named `error` by default.
+
+### Example showing difference in output
+
+Using `WithField`:
+
+```go
+logrus.WithField("user", "skyy").Info("login")
+```
+
+Output (text):
+
+```
+level=info msg="login" user=skyy
+```
+
+Using `WithFields`:
+
+```go
+logrus.WithFields(logrus.Fields{"user":"skyy","id":101}).Info("login")
+```
+
+Output:
+
+```
+level=info msg="login" user=skyy id=101
+```
+
+### Best practices for fields
+
+* Use short, consistent field names (`request_id`, `user_id`, `service`).
+* Attach request/context fields at the earliest point (middleware) and pass the entry down the call chain.
+* Don’t create huge dynamic structures as fields (arrays/maps with many items).
+* Avoid logging PII or secrets in fields.
+
+---
+
+# Additional practical patterns & tips
+
+## Configure logging once (in `main()`)
+
+```go
+func initLogger() *logrus.Logger {
+    logger := logrus.New()
+    logger.SetFormatter(&logrus.JSONFormatter{
+        TimestampFormat: time.RFC3339Nano,
+    })
+    f, _ := os.OpenFile("app.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+    logger.SetOutput(io.MultiWriter(os.Stdout, f))
+    logger.SetLevel(logrus.InfoLevel)
+    logger.SetReportCaller(true) // include file/func (costly; use when needed)
+    return logger
+}
+```
+
+## Using with Gin
+
+Make a middleware that attaches an entry per request:
+
+```go
+func LoggerMiddleware(logger *logrus.Logger) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        entry := logger.WithFields(logrus.Fields{
+            "request_id": c.GetHeader("X-Request-ID"),
+            "path": c.Request.URL.Path,
+            "method": c.Request.Method,
+        })
+        c.Set("logger", entry)
+        entry.Info("request started")
+        c.Next()
+        entry.WithField("status", c.Writer.Status()).Info("request completed")
+    }
+}
+```
+
+Then inside handlers:
+
+```go
+entry := c.MustGet("logger").(*logrus.Entry)
+entry.Info("handling business logic")
+```
+
+## Hooks for remote sinks
+
+Implement `logrus.Hook`:
+
+```go
+type MyHook struct {}
+func (h *MyHook) Levels() []logrus.Level { return logrus.AllLevels }
+func (h *MyHook) Fire(entry *logrus.Entry) error {
+    // push to remote system (async if possible)
+    return nil
+}
+logrus.AddHook(&MyHook{})
+```
+
+## Performance considerations
+
+* `WithFields` creates a `map[string]interface{}` and allocates. For very hot code paths, minimize fields or switch to a lower-allocation logger.
+* `SetReportCaller(true)` collects runtime.Caller info — useful but relatively expensive.
+* JSON formatting and I/O are the main bottlenecks — batch or async transport to remote systems.
+
+## Don’t log passwords/secrets
+
+Always scrub or avoid logging sensitive data. Use structured fields and a filtering layer if necessary.
+
+---
+
+# Quick reference snippets
+
+### Logger setup (JSON, multiwriter)
+
+```go
+logger := logrus.New()
+logger.SetFormatter(&logrus.JSONFormatter{TimestampFormat: time.RFC3339Nano})
+f, _ := os.OpenFile("app.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+logger.SetOutput(io.MultiWriter(os.Stdout, f))
+logger.SetLevel(logrus.InfoLevel)
+```
+
+### Add fields and log
+
+```go
+logger.WithFields(logrus.Fields{
+    "request_id": "r-123",
+    "user_id":    42,
+}).Info("user request processed")
+```
+
+### Use `WithError`
+
+```go
+if err != nil {
+    logger.WithError(err).WithField("op", "db.query").Error("query failed")
+}
+```
+
+---

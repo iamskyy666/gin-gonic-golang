@@ -1066,3 +1066,424 @@ Typical throughput:
 * True parallelism
 
 ---
+
+# 🔥 **Golang Logrus — The Complete Guide**
+
+`Logrus` is one of the most popular structured logging libraries for Go. It is widely used in real-world production systems because it adds **levels, hooks, formatting, fields, structured logging**, and better readability than Go’s built-in `log` package.
+
+---
+
+# ✅ **1. What is Logrus?**
+
+Logrus is a **structured logger** designed to:
+
+* Replace the default `log` package
+* Provide leveled logging (info, warn, error, fatal, etc.)
+* Provide structured logs with JSON or plain text
+* Allow hooks for external services (ELK, Kafka, Sentry, etc.)
+* Be performant and production-ready
+
+---
+
+# 📦 **2. Installing Logrus**
+
+```bash
+go get github.com/sirupsen/logrus
+```
+
+---
+
+# 🧠 **3. Basic Usage**
+
+### Example: Simple Log Statement
+
+```go
+import log "github.com/sirupsen/logrus"
+
+func main() {
+    log.Info("Server started")
+    log.Warn("Low disk space")
+    log.Error("Database connection failed")
+}
+```
+
+Logrus automatically prints timestamps and log levels.
+
+---
+
+# 🏷️ **4. Logging with Fields (Structured Logging)**
+
+This is the biggest power of Logrus — we can attach metadata to logs.
+
+```go
+log.WithFields(log.Fields{
+    "user": "skyy",
+    "id":   101,
+}).Info("User login successful")
+```
+
+Produces JSON or formatted logs like:
+
+```
+INFO user=skyy id=101 User login successful
+```
+
+---
+
+# 🔄 **5. Log Levels in Logrus**
+
+Logrus supports 7 levels (from lowest to highest):
+
+1. **Trace**
+2. **Debug**
+3. **Info**
+4. **Warn**
+5. **Error**
+6. **Fatal** → exits the program
+7. **Panic** → logs and panics
+
+### Set Global Level
+
+```go
+log.SetLevel(log.DebugLevel)
+```
+
+---
+
+# 🎨 **6. Formatters**
+
+Logrus supports multiple output formats:
+
+---
+
+## ⭐ **A. Text Formatter (default)**
+
+Human readable
+
+```go
+log.SetFormatter(&log.TextFormatter{
+    FullTimestamp: true,
+})
+```
+
+---
+
+## ⭐ **B. JSON Formatter**
+
+Perfect for production logs, ELK, Loki, Datadog, etc.
+
+```go
+log.SetFormatter(&log.JSONFormatter{})
+```
+
+Produces:
+
+```json
+{
+  "level": "info",
+  "msg": "Server started",
+  "time": "2025-01-26T15:04:05Z"
+}
+```
+
+---
+
+# 📝 **7. Output Destinations**
+
+By default Logrus outputs to stdout.
+
+We can write logs to a file:
+
+```go
+file, _ := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+log.SetOutput(file)
+```
+
+Or write to multiple outputs using `io.MultiWriter`.
+
+---
+
+# 🪝 **8. Hooks (Advanced Feature)**
+
+Hooks allow us to **send logs elsewhere**:
+
+* Sentry
+* Slack
+* Kafka
+* Email
+* Graylog
+* Datadog
+
+Example skeleton:
+
+```go
+type MyHook struct{}
+
+func (hook *MyHook) Levels() []log.Level {
+    return log.AllLevels
+}
+
+func (hook *MyHook) Fire(entry *log.Entry) error {
+    fmt.Println("Log Hook Triggered")
+    return nil
+}
+```
+
+```go
+log.AddHook(&MyHook{})
+```
+
+---
+
+# 🧱 **9. Creating a Custom Logger Instance**
+
+Instead of using the global logger, we can create our own:
+
+```go
+logger := log.New()
+logger.SetOutput(os.Stdout)
+logger.SetFormatter(&log.JSONFormatter{})
+logger.SetLevel(log.InfoLevel)
+
+logger.Info("Custom logger active")
+```
+
+Useful for microservices or multiple modules.
+
+---
+
+# ✔️ **10. Logging Errors**
+
+Logrus works great with Go errors:
+
+```go
+err := errors.New("user not found")
+log.WithError(err).Error("Failed to get user")
+```
+
+Produces:
+
+```
+level=error msg="Failed to get user" error="user not found"
+```
+
+---
+
+# ⚙️ **11. Use Logrus with Context**
+
+In real apps, we often pass request IDs, user IDs, etc.
+
+```go
+requestLogger := log.WithFields(log.Fields{
+    "request_id": "abc123",
+    "user_id":    "42",
+})
+
+requestLogger.Info("Fetching user data")
+```
+
+---
+
+# 🔐 **12. Production Best Practices**
+
+1. Use **JSON logs** in production
+2. Always attach **context fields** (request ID, user, IP, etc.)
+3. Use **Warn**, **Error**, **Fatal** properly (don’t overuse levels)
+4. Log errors with **WithError**
+5. Add hooks for your logging infrastructure
+
+---
+
+# 🆚 **13. Logrus vs Zerolog (Modern Comparison)**
+
+| Feature            | Logrus    | Zerolog                      |
+| ------------------ | --------- | ---------------------------- |
+| Performance        | Medium    | Very fast (zero allocations) |
+| Syntax             | Friendly  | More strict                  |
+| Popularity         | Very high | Increasing                   |
+| Structured logging | Very good | Excellent                    |
+| API                | Simple    | Advanced                     |
+
+Logrus is still more beginner-friendly and widely used.
+
+---
+
+# 🧪 **14. Real-world Example (REST API)**
+
+```go
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+    log.WithFields(log.Fields{
+        "method": r.Method,
+        "endpoint": r.URL.Path,
+        "ip": r.RemoteAddr,
+    }).Info("Login request received")
+
+    // ...
+}
+```
+
+---
+
+# 🧵 **15. Logrus in Gin-Gonic (our context)**
+
+Since we’re using Gin:
+
+```go
+router.Use(gin.LoggerWithWriter(log.StandardLogger().Out))
+```
+
+Or custom:
+
+```go
+logger := log.New()
+logger.SetFormatter(&log.JSONFormatter{})
+
+router.Use(gin.LoggerWithWriter(logger.Out))
+```
+
+---
+
+# 🎯 **Conclusion**
+
+Logrus gives us:
+
+✔ Structured logging
+✔ JSON output
+✔ Levels
+✔ Hooks
+✔ Custom loggers
+✔ Easy integration with frameworks like Gin
+
+It’s ideal for real-world Go projects — especially APIs, microservices, and backend systems.
+
+---
+
+Log levels in **Logrus** define the **severity** and **importance** of a log message.
+They help us control **what gets logged** and allow filtering based on the environment (development, staging, production).
+
+Logrus provides **7 log levels**, ordered from **lowest → highest severity**:
+
+---
+
+# 🔥 **Logrus Log Levels (from least to most severe)**
+
+### **1. TraceLevel**
+
+* The most detailed level
+* For extremely fine-grained events
+* Rarely used unless debugging complicated internal tasks
+
+```go
+log.Trace("Entered function A with values...")
+```
+
+---
+
+### **2. DebugLevel**
+
+* Used during development
+* Shows detailed debugging information
+* Not recommended for production unless needed
+
+```go
+log.Debug("Database query executed")
+```
+
+---
+
+### **3. InfoLevel**
+
+* General operational messages
+* Indicates that things are working normally
+* Most commonly used level
+
+```go
+log.Info("Server started on port 8080")
+```
+
+---
+
+### **4. WarnLevel**
+
+* Something unexpected happened
+* Not an error, but might need attention
+
+```go
+log.Warn("Disk usage is 85%")
+```
+
+---
+
+### **5. ErrorLevel**
+
+* An error occurred but the application can continue running
+* Needs investigation
+
+```go
+log.Error("Failed to connect to database")
+```
+
+---
+
+### **6. FatalLevel**
+
+* Logs the error and **exits the program** immediately
+* Should be used carefully
+
+```go
+log.Fatal("Unable to open configuration file")
+```
+
+---
+
+### **7. PanicLevel**
+
+* Logs the message and **panics** (causes a stack trace)
+* Rarely used unless dealing with unrecoverable states
+
+```go
+log.Panic("Panic! Something is seriously wrong")
+```
+
+---
+
+# 📌 **Important: Log Level Hierarchy**
+
+Logrus will only print logs **equal to or above the configured level**.
+
+Example:
+
+```go
+log.SetLevel(log.WarnLevel)
+```
+
+This means it will print:
+
+* Warn
+* Error
+* Fatal
+* Panic
+
+But it will **not print**:
+
+* Info
+* Debug
+* Trace
+
+---
+
+# 🎯 Summary Table
+
+| Level | Meaning                  | Used For                      |
+| ----- | ------------------------ | ----------------------------- |
+| Trace | Deep debugging           | Internal events               |
+| Debug | Debug info               | Development                   |
+| Info  | Normal business events   | Startup, requests, tasks      |
+| Warn  | Unexpected but not fatal | Degraded performance, retries |
+| Error | Something broke          | Database errors, failures     |
+| Fatal | Log + exit program       | Critical errors               |
+| Panic | Log + panic              | Unrecoverable states          |
+
+---
+
+

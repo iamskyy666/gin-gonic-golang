@@ -1,0 +1,33 @@
+{
+  "file": "C:/Users/ASUS/Desktop/gin-gonic/main.go:46",
+  "func": "main.main",
+  "level": "trace",
+  "msg": "Trace 🟢"
+}
+{
+  "file": "C:/Users/ASUS/Desktop/gin-gonic/main.go:47",
+  "func": "main.main",
+  "level": "debug",
+  "msg": "Debug 🟡"
+}
+{
+  "file": "C:/Users/ASUS/Desktop/gin-gonic/main.go:48",
+  "func": "main.main",
+  "level": "info",
+  "msg": "Info 🟠"
+}
+{
+  "file": "C:/Users/ASUS/Desktop/gin-gonic/main.go:58",
+  "func": "main.GetDatahandler",
+  "handler": "GetData",
+  "level": "info",
+  "msg": "Inside handler"
+}
+{
+  "file": "C:/Users/ASUS/Desktop/gin-gonic/main.go:62",
+  "func": "main.GetDatahandler",
+  "level": "info",
+  "method": "GetDatahandler",
+  "msg": "Handler execution complete",
+  "status": "OK"
+}
