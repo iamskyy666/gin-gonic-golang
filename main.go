@@ -14,9 +14,9 @@ func main() {
 
 	router.GET("/", RootHandler)
 	router.POST("/", PostHandler)
-	router.POST("/get-body-data", PostBodyDataHandler)
-	router.POST("/get-QryStr", PostQryDataHandler)
-	router.POST("/get-UrlParams/:name/:age", PostUrlDataHandler)
+	router.GET("/get-body-data", GetBodyDataHandler)
+	router.GET("/get-QryStr", GetQryDataHandler)
+	router.GET("/get-UrlParams/:name/:age", GetUrlDataHandler)
 
 	err := router.Run() //default/without params:8080
 	if err != nil {
@@ -28,7 +28,7 @@ func main() {
 func RootHandler(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{
 		"Thought💭": "Don't take life too seriously, you ain't getting out alive anyways",
-		"data":     "🍸 Welcome to root / home router Skyy (PORT: 8️⃣0️⃣8️⃣0️⃣ by default)!",
+		"data":     "🍸 Welcome to GET root / home router Skyy (PORT: 8️⃣0️⃣8️⃣0️⃣ by default)!",
 		"status":   http.StatusOK,
 	})
 }
@@ -41,8 +41,8 @@ func PostHandler(ctx *gin.Context) {
 	})
 }
 
-// POST
-func PostBodyDataHandler(ctx *gin.Context) {
+// GET
+func GetBodyDataHandler(ctx *gin.Context) {
   // Read data from the body
 	body := ctx.Request.Body
 	val, err := io.ReadAll(body)
@@ -64,8 +64,8 @@ func PostBodyDataHandler(ctx *gin.Context) {
 
 // Handling query-params
 // http://localhost:8080/get-QryStr?name=Mark&age=30
-// POST
-func PostQryDataHandler(ctx *gin.Context) {
+// GET
+func GetQryDataHandler(ctx *gin.Context) {
   // Read data from the body
 	name := ctx.Query("name")
   age := ctx.Query("age")
@@ -80,8 +80,8 @@ func PostQryDataHandler(ctx *gin.Context) {
 
 // Handling URL-params
 // http://localhost:8080/get-UrlParams/Skyy/30
-// POST
-func PostUrlDataHandler(ctx *gin.Context) {
+// GET
+func GetUrlDataHandler(ctx *gin.Context) {
   // Read data from the URL-params
 	name := ctx.Param("name")
   age := ctx.Param("age")
