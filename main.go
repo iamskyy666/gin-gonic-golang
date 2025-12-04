@@ -1,8 +1,13 @@
 package main
 
+// Custom HTTP Config. with GIN
+// Route Grouping in GIN
+// Basic Auth funtionality in GIN
+
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"io"
 
@@ -12,16 +17,44 @@ import (
 func main() {
 	router := gin.Default() // gin-router, with default middleware
 
-	router.GET("/", RootHandler)
-	router.POST("/", PostHandler)
-	router.GET("/get-body-data", GetBodyDataHandler)
-	router.GET("/get-QryStr", GetQryDataHandler)
-	router.GET("/get-UrlParams/:name/:age", GetUrlDataHandler)
+	// Without group
+	 router.GET("/", RootHandler)
+	// router.POST("/", PostHandler)
+	// router.GET("/get-body-data", GetBodyDataHandler)
+	// router.GET("/get-QryStr", GetQryDataHandler)
+	// router.GET("/get-UrlParams/:name/:age", GetUrlDataHandler)
 
-	err := router.Run() //default/without params:8080
-	if err != nil {
-		log.Fatalf("failed to run server: %v", err)
+	//💡 Auth 🛡️
+	auth:=gin.BasicAuth(gin.Accounts{
+		"user":"passw",
+		"user1":"passw1",
+		"user2":"passw2",
+	})
+
+	//💡 Grouping routes 🛜
+	adminRoutes:= router.Group("/admin",auth) // auth applied
+	{
+		adminRoutes.GET("/get-body-data", GetBodyDataHandler).GET("/get-QryStr", GetQryDataHandler).GET("/get-UrlParams/:name/:age", GetUrlDataHandler)
 	}
+
+	clientRoutes:= router.Group("/client")
+	{
+		clientRoutes.GET("/get-UrlParams/:name/:age", GetUrlDataHandler)
+	}
+
+
+	//💡 custom http-config ⚙️
+	server:=&http.Server{
+		Addr: ":9091",
+		Handler: router,
+		ReadTimeout: 10*time.Second,
+		WriteTimeout: 10*time.Second,
+	}
+	err:=server.ListenAndServe()
+	if err != nil {
+		log.Fatalf("⚠️failed to run server: %v", err)
+	}
+	
 }
 
 // ROOT
@@ -63,7 +96,7 @@ func GetBodyDataHandler(ctx *gin.Context) {
 }
 
 // Handling query-params
-// http://localhost:8080/get-QryStr?name=Mark&age=30
+// http://localhost:9091/get-QryStr?name=Mark&age=30
 // GET
 func GetQryDataHandler(ctx *gin.Context) {
   // Read data from the body
@@ -79,7 +112,7 @@ func GetQryDataHandler(ctx *gin.Context) {
 }
 
 // Handling URL-params
-// http://localhost:8080/get-UrlParams/Skyy/30
+// http://localhost:9091/get-UrlParams/Skyy/30
 // GET
 func GetUrlDataHandler(ctx *gin.Context) {
   // Read data from the URL-params
