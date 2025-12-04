@@ -1,128 +1,74 @@
 package main
 
-// Custom HTTP Config. with GIN
-// Route Grouping in GIN
-// Basic Auth funtionality in GIN
+// What is a middleware
+// How to use middleware in Go
+// Apply Middleware to routes, routes group and whole application at once
 
 import (
 	"log"
 	"net/http"
 	"time"
 
-	"io"
-
 	"github.com/gin-gonic/gin"
+	"github.com/skyy/gin-gonic/middleware"
 )
 
 func main() {
-	router := gin.Default() // gin-router, with default middleware
+	router := gin.New() // gin-router, without default middleware (New)
 
-	// Without group
-	 router.GET("/", RootHandler)
-	// router.POST("/", PostHandler)
-	// router.GET("/get-body-data", GetBodyDataHandler)
-	// router.GET("/get-QryStr", GetQryDataHandler)
-	// router.GET("/get-UrlParams/:name/:age", GetUrlDataHandler)
+	//💡 MW Apply to individual routes
+	router.GET("/getData", middleware.Authenticate,middleware.AddHeader,GetDatahandler,) 
+	router.GET("/getData1", GetData1handler)
+	router.GET("/getData2", GetData2handler)
 
-	//💡 Auth 🛡️
-	auth:=gin.BasicAuth(gin.Accounts{
-		"user":"passw",
-		"user1":"passw1",
-		"user2":"passw2",
-	})
+	//💡 MW Apply to all routes
+	//router.Use(middleware.Authenticate) 
+	// router.GET("/getData", GetDatahandler)
+	// router.GET("/getData1", GetData1handler)
+	// router.GET("/getData2", GetData2handler)
+	
 
-	//💡 Grouping routes 🛜
-	adminRoutes:= router.Group("/admin",auth) // auth applied
-	{
-		adminRoutes.GET("/get-body-data", GetBodyDataHandler).GET("/get-QryStr", GetQryDataHandler).GET("/get-UrlParams/:name/:age", GetUrlDataHandler)
-	}
+	// 💡 MW Apply to route-group
+	// adminRoutes:=router.Group("/admin",middleware.Authenticate)
+	// {
+	// adminRoutes.GET("/getData", middleware.Authenticate,GetDatahandler)
+	// adminRoutes.GET("/getData1", GetData1handler)
+	// adminRoutes.GET("/getData2", GetData2handler)
+	// }
 
-	clientRoutes:= router.Group("/client")
-	{
-		clientRoutes.GET("/get-UrlParams/:name/:age", GetUrlDataHandler)
-	}
+	
 
-
-	//💡 custom http-config ⚙️
+	// http-config
 	server:=&http.Server{
 		Addr: ":9091",
 		Handler: router,
 		ReadTimeout: 10*time.Second,
 		WriteTimeout: 10*time.Second,
 	}
+
 	err:=server.ListenAndServe()
 	if err != nil {
 		log.Fatalf("⚠️failed to run server: %v", err)
 	}
-	
 }
 
-// ROOT
-func RootHandler(ctx *gin.Context) {
+func GetDatahandler(ctx *gin.Context){
 	ctx.JSON(http.StatusOK, gin.H{
-		"Thought💭": "Don't take life too seriously, you ain't getting out alive anyways",
-		"data":     "🍸 Welcome to GET root / home router Skyy (PORT: 8️⃣0️⃣8️⃣0️⃣ by default)!",
-		"status":   http.StatusOK,
+		"data":"Hi! I am GetDataHandler method() 🟢",
+		"status_code":http.StatusOK,
 	})
 }
 
-// POST
-func PostHandler(ctx *gin.Context) {
+func GetData1handler(ctx *gin.Context){
 	ctx.JSON(http.StatusOK, gin.H{
-		"data":   "Hi I'm a POST request 🟢",
-		"status": http.StatusOK,
+		"data":"Hi! I am GetData1Handler method() 🔵",
+		"status_code":http.StatusOK,
 	})
 }
 
-// GET
-func GetBodyDataHandler(ctx *gin.Context) {
-  // Read data from the body
-	body := ctx.Request.Body
-	val, err := io.ReadAll(body)
-
-  if err!=nil{
-    ctx.JSON(http.StatusInternalServerError, gin.H{
-		"ERROR ⚠️": err.Error(),
-		"status":   http.StatusInternalServerError,
-	})
-  log.Fatal(err.Error())
-  return
-  }
-
+func GetData2handler(ctx *gin.Context){
 	ctx.JSON(http.StatusOK, gin.H{
-		"bodyData": string(val),
-		"status":   http.StatusOK,
-	})
-}
-
-// Handling query-params
-// http://localhost:9091/get-QryStr?name=Mark&age=30
-// GET
-func GetQryDataHandler(ctx *gin.Context) {
-  // Read data from the body
-	name := ctx.Query("name")
-  age := ctx.Query("age")
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"data": "Getting data from Query-Params 🟢",
-    "name":name,
-    "age":age,
-		"status":   http.StatusOK,
-	})
-}
-
-// Handling URL-params
-// http://localhost:9091/get-UrlParams/Skyy/30
-// GET
-func GetUrlDataHandler(ctx *gin.Context) {
-  // Read data from the URL-params
-	name := ctx.Param("name")
-  age := ctx.Param("age")
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"data": "Getting data from URL params 🔵",
-    "name":name,
-    "age":age,
-		"status":   http.StatusOK,
+		"data":"Hi! I am GetData2Handler method() 🟡",
+		"status_code":http.StatusOK,
 	})
 }
