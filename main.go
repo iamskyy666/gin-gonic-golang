@@ -1,52 +1,60 @@
 package main
 
-// What is a middleware
-// How to use middleware in Go
-// Apply Middleware to routes, routes group and whole application at once
+/*
+
+1. Logging in GIN.
+2. How default logging works.
+3. Define format for the log of routes in GIN.
+4. Define format of the logs with GIN.
+5. Write logs to files in GIN.
+6. Controlling log-output coloring in console with GIN.
+7. Logging in JSON format in GIN. (Real world situation).
+
+*/
 
 import (
+	"io"
 	"log"
 	"net/http"
-	"time"
+	"os"
 
 	"github.com/gin-gonic/gin"
-	"github.com/skyy/gin-gonic/middleware"
+	"github.com/mattn/go-colorable"
+	"github.com/skyy/gin-gonic/middlewares"
 )
 
 func main() {
-	router := gin.New() // gin-router, without default middleware (New)
+	// router := gin.Default()
+	router := gin.Default()
 
-	//💡 MW Apply to individual routes
-	router.GET("/getData", middleware.Authenticate,middleware.AddHeader,GetDatahandler,) 
-	router.GET("/getData1", GetData1handler)
-	router.GET("/getData2", GetData2handler)
+	// Define format for the log of routes
+	gin.DebugPrintRouteFunc = func(httpMethod, absolutePath, handlerName string, nuHandlers int) {
+	log.Printf(
+		"Custom Route Log → method=%s | path=%s | handler=%s | handlers=%d",
+		httpMethod, absolutePath, handlerName, nuHandlers,
+	)
+}
 
-	//💡 MW Apply to all routes
-	//router.Use(middleware.Authenticate) 
-	// router.GET("/getData", GetDatahandler)
-	// router.GET("/getData1", GetData1handler)
-	// router.GET("/getData2", GetData2handler)
-	
+  // Controlling log-output coloring in console with GIN. 🎨
+  gin.ForceConsoleColor()
+  gin.DefaultWriter = colorable.NewColorableStdout()
 
-	// 💡 MW Apply to route-group
-	// adminRoutes:=router.Group("/admin",middleware.Authenticate)
-	// {
-	// adminRoutes.GET("/getData", middleware.Authenticate,GetDatahandler)
-	// adminRoutes.GET("/getData1", GetData1handler)
-	// adminRoutes.GET("/getData2", GetData2handler)
-	// }
 
-	
+	// Create a log-file and write logs (data) to it.
+	f,_:=os.Create("ginLogging.log")
+	//gin.DefaultWriter = io.MultiWriter(f) // log to file
+	gin.DefaultWriter = io.MultiWriter(f, os.Stdout) // log to file + console
 
-	// http-config
-	server:=&http.Server{
-		Addr: ":9091",
-		Handler: router,
-		ReadTimeout: 10*time.Second,
-		WriteTimeout: 10*time.Second,
-	}
+	//💡 Logger MW
+	// router.Use(gin.LoggerWithFormatter(middlewares.FormatLogs))
 
-	err:=server.ListenAndServe()
+	// 💡 JSON logger
+	router.Use(gin.LoggerWithFormatter(middlewares.FormatLogsJSON))
+
+
+	router.GET("/getData",GetDatahandler) 
+
+	err:=router.Run()
 	if err != nil {
 		log.Fatalf("⚠️failed to run server: %v", err)
 	}
@@ -55,20 +63,6 @@ func main() {
 func GetDatahandler(ctx *gin.Context){
 	ctx.JSON(http.StatusOK, gin.H{
 		"data":"Hi! I am GetDataHandler method() 🟢",
-		"status_code":http.StatusOK,
-	})
-}
-
-func GetData1handler(ctx *gin.Context){
-	ctx.JSON(http.StatusOK, gin.H{
-		"data":"Hi! I am GetData1Handler method() 🔵",
-		"status_code":http.StatusOK,
-	})
-}
-
-func GetData2handler(ctx *gin.Context){
-	ctx.JSON(http.StatusOK, gin.H{
-		"data":"Hi! I am GetData2Handler method() 🟡",
 		"status_code":http.StatusOK,
 	})
 }
